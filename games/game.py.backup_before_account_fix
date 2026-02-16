@@ -1,0 +1,336 @@
+import logging
+import requests
+import json
+import os
+import time
+import asyncio
+from typing import List, Dict, Any, Optional
+from dotenv import load_dotenv
+import discord
+
+load_dotenv()
+constants_path = os.getenv("CONSTANTS_PATH", "/app/constants.json")
+
+def load_constants(file_path):
+    if not os.path.isfile(file_path):
+        raise FileNotFoundError(f"Constants file not found at: {file_path}")
+    with open(file_path, "r") as file:
+        return json.load(file)
+
+constants = load_constants(constants_path)
+print(f"Using constants file at: {constants_path}")
+
+logger = logging.getLogger(__name__)
+
+class Game:
+    def __init__(self, name, config, cookies):
+        self.name = name
+        self.full_name = config["game"]
+        self.config = config
+        self.data = cookies
+        self.session = requests.Session()
+        self.awards = None
+
+    def get_sign_info(self, cookie):
+        """Retrieve sign-in info - FIXED to use GET method like original"""
+        try:
+            url = f"{self.config['url']['info']}?act_id={self.config['ACT_ID']}"
+            headers = {
+                "Cookie": cookie,
+                "x-rpc-signgame": self.get_sign_game_header(),
+                "User-Agent": self.user_agent
+            }
+
+            response = self.session.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+
+            if data["retcode"] != 0:
+                return {"success": False, "message": data.get("message", "Unknown error")}
+
+            return {
+                "success": True,
+                "data": {
+                    "total": data["data"]["total_sign_day"],
+                    "today": data["data"]["today"],
+                    "is_signed": data["data"]["is_sign"],
+                }
+            }
+
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    def sign(self, cookie, retries=2):
+        """Sign in to the game with retry logic."""
+        for attempt in range(1, retries + 1):
+            try:
+                url = self.config["url"]["sign"]
+                payload = {"act_id": self.config["ACT_ID"]}
+                headers = {
+                    "User-Agent": self.user_agent,
+                    "Cookie": cookie,
+                    "Content-Type": "application/json",
+                    "x-rpc-signgame": self.get_sign_game_header(),
+                    "x-rpc-client_type": "5",
+                    "x-rpc-app_version": "2.34.1",
+                }
+
+                response = self.session.post(url, json=payload, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+
+                if data["retcode"] == -500012:
+                    logging.warning(f"{self.full_name}: Event may be temporarily unavailable. Retrying...")
+                    time.sleep(5)
+                    continue
+
+                if data["retcode"] != 0:
+                    logging.warning(f"{self.full_name}: Error signing in. Response: {data}")
+                    return {"success": False, "message": data.get("message", "Unknown error")}
+
+                logging.info(f"{self.full_name}: Successfully signed in!")
+                return {"success": True}
+
+            except Exception as e:
+                logging.error(f"{self.full_name}: Error signing in on attempt {attempt}: {e}")
+                if attempt == retries:
+                    return {"success": False, "message": str(e)}
+
+    def extract_ltuid(self, cookie):
+        """Extract ltuid_v2 from cookie."""
+        try:
+            ltuid_v2 = None
+            for part in cookie.split(";"):
+                if "ltuid_v2=" in part:
+                    ltuid_v2 = part.split("ltuid_v2=")[1].strip()
+                    break
+            return ltuid_v2
+        except Exception as e:
+            logging.error(f"Error extracting ltuid_v2: {e}")
+            return None
+
+    def get_account_details(self, cookie, ltuid):
+        """Get account details."""
+        try:
+            url = self.config["url"]["home"]
+            headers = {
+                "User-Agent": self.user_agent,
+                "Cookie": cookie,
+            }
+
+            response = self.session.get(f"{url}?uid={ltuid}", headers=headers)
+            response.raise_for_status()
+            data = response.json()
+
+            if data["retcode"] != 0:
+                return None
+
+            account_data = data["data"]
+            return {
+                "uid": account_data.get("uid", ltuid),
+                "nickname": account_data.get("nickname", "Unknown"),
+                "rank": account_data.get("level", 0),
+                "region": account_data.get("region", "Unknown")
+            }
+
+        except Exception as e:
+            logging.error(f"Error getting account details: {e}")
+            return None
+
+    def get_awards_data(self, cookie):
+        """Get awards data - using GET method"""
+        try:
+            url = f"{self.config['url']['home']}/award?act_id={self.config['ACT_ID']}"
+            headers = {
+                "User-Agent": self.user_agent,
+                "Cookie": cookie,
+                "x-rpc-signgame": self.get_sign_game_header(),
+            }
+
+            response = self.session.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+
+            if data["retcode"] != 0:
+                return {"success": False, "message": data.get("message", "Unknown error")}
+
+            return {"success": True, "data": data["data"]["awards"]}
+
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    @property
+    def user_agent(self):
+        """Get user agent string."""
+        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+
+    def get_sign_game_header(self):
+        """Get sign game header."""
+        return self.config.get("signGameHeader", "")
+
+    async def process_account(self, account, guild_id):
+        """Process a single account and send Discord notification if successful"""
+        try:
+            name = account.get("name", "Unknown")
+            cookie = account.get("cookie", "")
+
+            logging.info(f"Processing account: {name} for {self.full_name}")
+
+            if not cookie:
+                logging.warning(f"{name}: No cookie provided")
+                return None
+
+            # Get sign info
+            sign_info = self.get_sign_info(cookie)
+            if not sign_info["success"]:
+                logging.warning(f"{name}: Failed to retrieve sign info. Reason: {sign_info.get('message', 'Unknown error')}")
+                return None
+
+            # Check if already signed in
+            if sign_info["data"]["is_signed"]:
+                logging.info(f"{name}: Already signed in today.")
+                return {
+                    "name": name,
+                    "status": "already_signed",
+                    "total": sign_info["data"]["total"],
+                    "game": self.full_name
+                }
+
+            # Get account details
+            ltuid = self.extract_ltuid(cookie)
+            if not ltuid:
+                logging.warning(f"{name}: ltuid_v2 is missing or invalid in the cookie")
+                return None
+
+            account_details = self.get_account_details(cookie, ltuid)
+            if not account_details:
+                logging.warning(f"{name}: Failed to retrieve account details")
+                return None
+
+            # Get awards data
+            if not self.awards:
+                awards_data = self.get_awards_data(cookie)
+                if not awards_data["success"]:
+                    logging.warning(f"{name}: Failed to fetch awards data")
+                    return None
+                self.awards = awards_data["data"]
+
+            # Determine today's reward
+            total_signed = sign_info["data"]["total"]
+            if total_signed >= len(self.awards):
+                logging.warning(f"{name}: Total signed ({total_signed}) exceeds available awards ({len(self.awards)})")
+                return None
+
+            award_object = {
+                "name": self.awards[total_signed]["name"],
+                "count": self.awards[total_signed]["cnt"],
+                "icon": self.awards[total_signed]["icon"],
+            }
+
+            # Attempt to sign in
+            sign_response = self.sign(cookie)
+            if not sign_response["success"]:
+                logging.warning(f"{name}: Failed to sign in. Reason: {sign_response.get('message', 'Unknown error')}")
+                return None
+
+            # Create success data
+            new_total = sign_info["data"]["total"] + 1
+            success_data = {
+                "platform": self.name,
+                "total": new_total,
+                "result": self.config["successMessage"],
+                "assets": self.config["assets"],
+                "account": account_details,
+                "award": award_object,
+                "name": name,
+            }
+
+            # Send Discord notification
+            await self.send_discord_notification_direct(guild_id, success_data)
+
+            logging.info(f"{name}: Successfully signed in. Today's reward: {award_object['name']} x{award_object['count']}")
+            return success_data
+
+        except Exception as e:
+            logging.error(f"Error processing account {account.get('name', 'Unknown')}: {e}")
+            return None
+
+    async def send_discord_notification_direct(self, guild_id, success_data):
+        """Send Discord notification directly using bot token"""
+        try:
+            token = os.getenv("DISCORD_BOT_TOKEN")
+            if not token:
+                logging.error("Discord bot token not found")
+                return
+
+            intents = discord.Intents.default()
+            client = discord.Client(intents=intents)
+
+            @client.event
+            async def on_ready():
+                try:
+                    # Get channel
+                    channel_id = 1417879161082613943
+                    channel = client.get_channel(channel_id)
+
+                    if not channel:
+                        logging.error(f"Channel {channel_id} not found")
+                        await client.close()
+                        return
+
+                    # Create embed like original
+                    embed = discord.Embed(
+                        color=16748258,
+                        title=f"{success_data['assets']['game']} Daily Check-In"
+                    )
+                    embed.set_author(
+                        name=success_data["name"],
+                        icon_url=success_data["assets"]["icon"]
+                    )
+                    embed.add_field(name="Nickname", value=success_data["account"]["nickname"], inline=True)
+                    embed.add_field(name="UID", value=success_data["account"]["uid"], inline=True)
+                    embed.add_field(name="Rank", value=success_data["account"]["rank"], inline=True)
+                    embed.add_field(name="Region", value=success_data["account"]["region"], inline=True)
+                    embed.add_field(
+                        name="Today's Reward",
+                        value=f"{success_data['award']['name']} x{success_data['award']['count']}",
+                        inline=True
+                    )
+                    embed.add_field(name="Total Check-Ins", value=success_data["total"], inline=True)
+                    embed.add_field(name="Result", value=success_data["result"], inline=False)
+                    embed.set_thumbnail(url=success_data["award"]["icon"])
+                    embed.set_footer(text=f"{success_data['assets']['game']} Daily Check-In")
+
+                    await channel.send(embed=embed)
+                    logging.info(f"Discord notification sent for {success_data['name']}")
+
+                except Exception as e:
+                    logging.error(f"Error sending Discord notification: {e}")
+                finally:
+                    await client.close()
+
+            await client.start(token)
+
+        except Exception as e:
+            logging.error(f"Error in Discord notification: {e}")
+
+
+class GameManager:
+    def __init__(self):
+        self.session = requests.Session()
+
+    async def process_game_checkins(self, guild_id: int, game_name: str, game_config: Dict[str, Any],
+                                  accounts: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+        successes = []
+        game = Game(game_name, game_config, accounts)
+
+        for account in accounts:
+            try:
+                result = await game.process_account(account, guild_id)
+                if result:
+                    successes.append(result)
+                await asyncio.sleep(2)
+            except Exception as e:
+                logger.error(f"Error processing account {account.get('name', 'Unknown')}: {e}")
+
+        return successes

@@ -1,0 +1,4 @@
+# miHoYo Daily Check-in Schedule
+# Runs at 11:05 PM daily (23:05) - after daily reset
+5 23 * * * cd /app && python main.py >> /app/logs/cron.log 2>&1
+

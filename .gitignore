@@ -1,0 +1,133 @@
+# === PYTHON ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# === VIRTUAL ENVIRONMENTS ===
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# === ENVIRONMENT & SECRETS ===
+.env
+.env.local
+.env.*.local
+*.env
+firebase_key.json
+config.json
+
+# === DATABASE FILES ===
+*.db
+*.sqlite
+*.sqlite3
+data/
+database_backups/
+
+# === LOGS & TEMP FILES ===
+logs/
+*.log
+*.log.*
+temp/
+tmp/
+.cache/
+
+# === TEST FILES & LOCAL DEVELOPMENT ===
+test_data/
+test_backup/
+backups/
+local_test.log
+local_test_setup.py
+setup_local_test.py
+run_local_tests.py
+test_simple.py
+docker-compose.test.yml
+.env.test
+.env.local
+
+# === DOCKER ===
+.dockerignore
+
+# === IDE & EDITORS ===
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# === OS SPECIFIC ===
+# Windows
+desktop.ini
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+*~
+
+# === MIGRATION & DEPLOYMENT ===
+firebase_export.json
+migration_backup_*/
+deploy_backup_*/
+
+# === DEVELOPMENT SCRIPTS ===
+migrate_production.sh
+deploy_local.sh
+test_*.py
+
+# === DOCUMENTATION DRAFTS ===
+*_draft.md
+*_temp.md
+
+# === JUPYTER NOTEBOOKS ===
+.ipynb_checkpoints
+
+# === COVERAGE REPORTS ===
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# === MYPY ===
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# === SENSITIVE FILES (Production) ===
+# Discord tokens and webhooks are in .env
+# Firebase keys
+# Any file containing 'secret' or 'key'
+*secret*
+*key*.json
+*token*
+*webhook*
