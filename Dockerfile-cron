@@ -1,4 +1,4 @@
-# Optimized Cron Dockerfile for SQLite-based miHoYo Bot
+# Cron Dockerfile for Arknights Bot
 FROM python:3.12-slim
 
 # Set environment variables
@@ -11,6 +11,9 @@ RUN apt-get update && apt-get install -y \
     cron \
     sqlite3 \
     procps \
+    tzdata \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
+    && echo $TZ > /etc/timezone \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -31,46 +34,23 @@ RUN pip install --upgrade pip \
 # Copy the application code
 COPY . /app/
 
-# Create dynamic cron job file
-COPY crontab.txt /etc/cron.d/mihoyo-cron
-
-# Set proper permissions for cron
-RUN chmod 0644 /etc/cron.d/mihoyo-cron \
-    && crontab /etc/cron.d/mihoyo-cron
-
-# Create a non-root user for security
-RUN useradd --create-home --shell /bin/bash mihoyo \
-    && chown -R mihoyo:mihoyo /app \
-    && chown mihoyo:mihoyo /etc/cron.d/mihoyo-cron
-
-# Health check for cron service
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD pgrep cron || exit 1
-
-# Create entrypoint script for dynamic cron setup
+# Create entrypoint script - runs as root so cron works
 RUN echo '#!/bin/bash\n\
 set -e\n\
 \n\
-# Get cron schedule from environment or use default\n\
 CRON_SCHEDULE="${CHECKIN_CRON_SCHEDULE:-5 23 * * *}"\n\
 \n\
-# Create cron job with environment variables\n\
-echo "Creating cron job with schedule: $CRON_SCHEDULE"\n\
-echo "$CRON_SCHEDULE cd /app && python main.py >> /app/logs/cron.log 2>&1 && date >> /app/logs/cron.log" > /etc/cron.d/mihoyo-cron\n\
-echo "" >> /etc/cron.d/mihoyo-cron\n\
+echo "Creating cron job with schedule: $CRON_SCHEDULE (Bangkok time)"\n\
+echo "$CRON_SCHEDULE cd /app && python main.py >> /app/logs/cron.log 2>&1" > /etc/cron.d/arknights-cron\n\
+echo "" >> /etc/cron.d/arknights-cron\n\
 \n\
-# Set permissions\n\
-chmod 0644 /etc/cron.d/mihoyo-cron\n\
-crontab /etc/cron.d/mihoyo-cron\n\
+chmod 0644 /etc/cron.d/arknights-cron\n\
+crontab /etc/cron.d/arknights-cron\n\
 \n\
-# Start cron in foreground\n\
 echo "Starting cron service..."\n\
 cron -f\n\
 ' > /app/entrypoint.sh \
     && chmod +x /app/entrypoint.sh
 
-# Switch to non-root user for the application
-USER mihoyo
-
-# Use entrypoint script
-CMD ["/app/entrypoint.sh"]
+# Run as root so cron can start properly
+CMD ["/bin/bash", "/app/entrypoint.sh"]

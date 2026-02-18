@@ -32,15 +32,17 @@ class EndfieldAdapter:
     VNAME = "1.0.0"
     ENDFIELD_GAME_ID = "3"
 
-    def __init__(self, account_token: str):
+    def __init__(self, account_token: str, account_name: str = "Unknown"):
         """
         Initialize with SKPort ACCOUNT_TOKEN (from browser cookies)
         OR with cred value directly (if you already have it)
 
         Args:
             account_token: ACCOUNT_TOKEN cookie OR cred value
+            account_name: Name of the account for logging
         """
         self.account_token = account_token
+        self.account_name = account_name
         self.cred = None
         self.sign_token = None
         self.game_role = None
@@ -208,7 +210,7 @@ class EndfieldAdapter:
                             logger.info(f"✓ Game role obtained: {game_role}")
                             return game_role
 
-            logger.warning("No Endfield binding found")
+            logger.warning(f"No Endfield binding found for account: {self.account_name}")
             return None
 
         except Exception as e:

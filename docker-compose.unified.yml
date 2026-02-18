@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.unified
+    container_name: ${CONTAINER_NAME:-bot}
+    image: ${IMAGE_NAME:-bot}:latest
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: always
+    networks:
+      - bot_network
+
+networks:
+  bot_network:
+    driver: bridge

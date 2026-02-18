@@ -1,0 +1,34 @@
+# Unified Dockerfile - Bot + Cron in one container
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    cron \
+    sqlite3 \
+    procps \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Create directories
+RUN mkdir -p /app/data /app/logs
+
+# Install Python deps
+COPY requirements.txt /app/
+RUN pip install --upgrade pip && pip install -r requirements.txt && pip cache purge
+
+# Copy app
+COPY . /app/
+
+# Copy startup script
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD pgrep -f "discord_bot.bot" && pgrep cron || exit 1
+
+CMD ["/app/start.sh"]

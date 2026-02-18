@@ -190,7 +190,7 @@ class DatabaseOperations:
             stmt = select(Account).where(
                 and_(
                     Account.guild_id == guild_id,
-                    Account.user_id == user_id,
+                    # Account.user_id == user_id,  # Removed: allow admin to delete any account
                     Account.game_id == game.id,
                     Account.name == account_name
                 )
@@ -324,7 +324,7 @@ class DatabaseOperations:
             stmt = delete(Account).where(
                 and_(
                     Account.guild_id == guild_id,
-                    Account.user_id == user_id,
+                    # Account.user_id == user_id,  # Removed: allow admin to delete any account
                     Account.game_id == game.id,
                     Account.name == account_name
                 )
@@ -429,7 +429,7 @@ class DatabaseOperations:
                 .where(
                     and_(
                         Account.guild_id == guild_id,
-                        Account.user_id == user_id,
+                        # Account.user_id == user_id,  # Removed: allow admin to delete any account
                         Account.game_id == game.id,
                         Account.name == account_name,
                         Account.is_active == True

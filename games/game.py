@@ -33,21 +33,22 @@ class Game:
         self.config = config
         self.data = cookies  # List of {name, cookie} dicts
 
-    def sign(self, account_token):
+    def sign(self, account_token, account_name="Unknown"):
         """
         Perform check-in using SKPort API
 
         Args:
             account_token: JWT token or cred value
+            account_name: Name of the account for logging
 
         Returns:
             dict: {"success": bool, "message": str, ...}
         """
         try:
-            logger.info(f"Processing Endfield account using SKPort API")
+            logger.info(f"Processing Endfield account: {account_name} using SKPort API")
 
             # Create adapter instance
-            adapter = EndfieldAdapter(account_token)
+            adapter = EndfieldAdapter(account_token, account_name)
 
             # Perform check-in
             result = adapter.perform_checkin()
@@ -86,7 +87,7 @@ class Game:
             logger.info(f"Processing account: {account_name} for {self.full_name}")
 
             # Perform check-in
-            sign_result = self.sign(account_token)
+            sign_result = self.sign(account_token, account_name)
 
             # Build result
             result = {
@@ -96,6 +97,7 @@ class Game:
                 "message": sign_result["message"],
                 "already_signed": sign_result.get("already_signed", False),
                 "reward": sign_result.get("reward"),
+                "all_rewards": sign_result.get("all_rewards", []),
                 "total_sign_day": sign_result.get("total_sign_day", 0),
                 "uid": None,  # SKPort doesn't easily expose UID in check-in flow
                 "nickname": None,
@@ -118,7 +120,7 @@ class Game:
         try:
             # Import here to avoid circular imports
             from database.operations import db_ops
-            from discord_bot.bot import get_bot_instance
+            from utils.discord import get_bot_instance
 
             # Get channel ID from database
             channel_id_str = await db_ops.get_guild_setting(guild_id, "channel_checkin")
@@ -187,19 +189,36 @@ class Game:
 
             # Show reward if available
             reward = data.get("reward")
+            reward_icon = None
             if reward:
                 reward_text = f"{reward.get('name', 'Unknown')} x{reward.get('count', 0)}"
+                reward_icon = reward.get('icon', '')
                 embed.add_field(
                     name="🎁 Reward",
                     value=reward_text,
                     inline=True
                 )
 
+            # Show additional rewards if available
+            all_rewards = data.get("all_rewards", [])
+            if all_rewards and len(all_rewards) > 1:
+                bonus_rewards = [f"{r.get('name', 'Unknown')} x{r.get('count', 0)}"
+                                for r in all_rewards[1:]]  # Skip first (main reward)
+                if bonus_rewards:
+                    embed.add_field(
+                        name="🌟 Bonus Rewards",
+                        value="\n".join(bonus_rewards),
+                        inline=False
+                    )
+
         # Add footer
         embed.set_footer(text=game_name)
 
-        # Add thumbnail
-        if icon_url:
+        # Set reward icon on the right side (thumbnail) if available
+        if reward and reward_icon:
+            embed.set_thumbnail(url=reward_icon)
+        # If no reward icon, use game icon as thumbnail
+        elif icon_url:
             embed.set_thumbnail(url=icon_url)
 
         return embed
@@ -232,12 +251,14 @@ class GameManager:
         # Process all accounts
         results = await game.process_all_accounts()
 
-        # Send Discord notifications
-        success_results = [r for r in results if r["success"] or r.get("already_signed")]
+        # Send Discord notifications only for NEW check-ins (not already signed)
+        success_results = [r for r in results if r["success"] and not r.get("already_signed")]
 
         if success_results:
-            # Group by success to send one notification
+            # Send notification for each newly checked-in account
             for result in success_results:
                 await game.send_discord_notification_direct(guild_id, result)
 
-        return success_results
+        # Return all successful results (including already signed)
+        all_success = [r for r in results if r["success"] or r.get("already_signed")]
+        return all_success
